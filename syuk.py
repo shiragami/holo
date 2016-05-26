@@ -1,16 +1,17 @@
 #!/usr/bin/python
-from skimage.feature import match_template
+
 import numpy as np
+from skimage.feature import match_template
+import scipy.ndimage as sn
 import os
 from subprocess import call
+from scipy.ndimage.filters import gaussian_filter
 
-# Function to componsate brightfield image.
+# Function to compensate brightfield image.
 # INPUTS
 #  img    : Input image
 #  imgbgd : Background image (No sample)
 # OUTPUTS : Image with compensated background 
-# TODO check both images must have same dimension
-# Assuming both are grayscale
 # Please apply PS:autocontrast for better comam image
 def PseudoWhiteBalance(img,imgbgd):
     assert img.shape == imgbgd.shape
@@ -44,15 +45,49 @@ def ShiftImage(img,sx,sy):
     img = np.roll(img,-sy,axis=0)
     return img
 
+# Function to detect glass region in HE stained biopsy speciment
+# Return binary image, True if glass
+def detectglass(img,stain='HE'):
+    if stain=='HE':
+        # Get the green channel
+        imgB = img[:,:,1]
+
+        # Apply blur
+        imgB = gaussian_filter(imgB, 1.5)
+
+        # Apply threshold
+        mu,sig = np.mean(imgB),np.std(imgB) 
+        imgglass = imgB > mu + 1.1*sig
+
+    return imgglass
+
 # Shift phase so that background (glass) equals close to zero
-def NormalizePhase(imgphase):
-    imgcenter = imgphase[256:256+512,256:256+512]
-    mu = np.mean(imgcenter)
-    sig = np.std(imgcenter)
-    imgphase = imgphase - (mu-2.0*sig)
+# imggnd: binary image for background(glass). Glass= True
+def NormalizePhase(imgphase,imggnd=None):
+
+    # If no ground image is specified, use center region as reference
+    if imggnd is None:
+        imgcenter = imgphase[256:256+512,256:256+512]
+        mu,sig = np.mean(imgcenter),np.std(imgcenter)
+        imgphase = imgphase - (mu-2.0*sig)
+    else:
+        # Create masked array. None glass area is masked (ignored)
+        imgglass = np.ma.masked_array(imgphase,mask=np.invert(imggnd))
+        mu = imgglass.mean()
+        print mu
+        imgphase = imgphase - mu
+    return imgphase
+
+# Map phase image to 0~255 grayscale
+def maptogray(imgphase,tmin,tmax):
+    imgphase = (imgphase-tmin)/(tmax-tmin)*255
+    imgphase[imgphase<0] = 0
+    imgphase[imgphase>255] = 255
+    imgphase = imgphase.astype(np.uint8,copy=False)
     return imgphase
 
 
+# Save numpy array as binary float32
 def savefloat(filename,img):
     x = np.array(img,'float32')
     fo = open(filename,'wb')
@@ -108,9 +143,14 @@ def extractHolo(imgHolo,paramExtract):
 
     return objwave
 
+
 # Fresnel propagate
 # Assuming the buffer size is always 1024x1024
+# lambd : laser wavelength
+# dd    : pixel size
+# dz    : propagation distance
 def Fresnelpropagate(objwave,lambd,dd,dz):
+    print ("Calculating Fresnel propagation at %s m") % (dz)
     # Generate wave, optimized
     imgtheta = np.fromfunction(lambda i,j:np.square(i-512) + np.square(j-512),(1024,1024),dtype=np.float32)
     imgtheta = imgtheta*np.pi*np.square(dd)/(lambd*dz)
@@ -140,10 +180,22 @@ def Fresnelpropagate(objwave,lambd,dd,dz):
 
     return imgRecon[512:512+1024,512:512+1024]
 
-# Phase unwrap
-def unwrap(imgphase):
+# Phase unwrap using Miguel unwrapper
+# Mask: bool array. Element with value False will be ignored
+def unwrap(imgphase,mask=None):
+
     savefloat("inptmpphi.dat",imgphase)
-    call(["/home/tk2/lib/Miguel_2D_unwrapper","inptmpphi.dat","outtmpphi.dat"])
+    if mask is None:
+        call(["/home/tk2/lib/Miguel_2D_unwrapper_with_mask","inptmpphi.dat","outtmpphi.dat"])
+    else:
+        assert mask.dtype == bool
+        # Save mask as uint8
+        x = np.array(mask*255,'uint8')
+        fo = open("inptmpmask.raw",'wb')
+        x.tofile(fo)
+        fo.close()
+        call(["/home/tk2/lib/Miguel_2D_unwrapper_with_mask","inptmpphi.dat","outtmpphi.dat","inptmpmask.raw"])
+        os.remove("inptmpmask.raw")
     # Reload phase
     imgphase = np.memmap("outtmpphi.dat",dtype=np.float32,shape=(1024,1024),mode='r')
     # Remove temporary file
@@ -155,3 +207,23 @@ def unwrap(imgphase):
 def rmvbgdphase(objwave,zerowave):
     objwave = objwave/np.exp(1.j*np.angle(zerowave))
     return objwave
+
+# Cos and Sin average filter
+# Input: Noisy phase image
+# step: Iteration step
+# wsize: Window size for spatial averaging 
+def cosavgfilter(imgphase,step=20,wsize=5):
+#    imgp = np.zeros([1024,1024],dtype=np.float32)
+#    imgphase = np.memmap(phase_path,dtype=np.float32,shape=(1024,1024),mode='r')
+    for k in range(step):
+        # Convert to sin and cosine
+        imgcos = np.cos(imgphase)
+        imgsin = np.sin(imgphase)
+
+        # Apply average filter
+        imgsin = sn.filters.uniform_filter(imgsin,size=wsize)
+        imgcos = sn.filters.uniform_filter(imgcos,size=wsize)
+
+        # Reconvert sin & cosine to phase
+        imgphase = np.arctan2(imgsin,imgcos)
+    return imgphase
