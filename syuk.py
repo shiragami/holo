@@ -129,9 +129,18 @@ def extractHolo(imgHolo,paramExtract):
     # Apply mask
     if mask:
         # Create mask
+#        imgmask = np.fromfunction(lambda i,j:(i-width/2)**2 + (j-width/2)**2,(width,width),dtype=np.float32)
+#        imgmask = imgmask < (width/2)**2
+#        objspec = objspec*imgmask
+
+        # Butterworth filter
+        cutoff = 45
+        order = 3
         imgmask = np.fromfunction(lambda i,j:(i-width/2)**2 + (j-width/2)**2,(width,width),dtype=np.float32)
-        imgmask = imgmask < (width/2)**2
+        imgmask = np.sqrt(imgmask)
+        imgmask = np.sqrt(1./(1. + np.power(imgmask/(float(cutoff)),2*order)))
         objspec = objspec*imgmask
+
 
     # Shift and IFFT
     objwave = np.zeros([1024,1024],dtype=np.cfloat)
