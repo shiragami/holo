@@ -39,11 +39,36 @@ class HoloSingle:
         # Crop spectral
         objspec = spec[py:py+width,px:px+width]
 
-        #TODO:add mask support
 
         # Shift and IFFT
         objwave = np.zeros([1024,1024],dtype=np.cfloat)
         objwave[512-width/2:512+width/2,512-width/2:512+width/2] = objspec
+        self.holo = objspec
+
+        # IFFT
+        objwave = np.fft.fftshift(objwave)
+        objwave = np.fft.ifft2(objwave)
+ 
+        self.amp = np.abs(objwave)
+        self.phi = np.angle(objwave)
+
+    # Extract to 512x512
+    def extract2(self,scrop):
+        NN  = 2048
+        NN2 = NN/2
+        py,px,width = scrop
+
+        # FFT image
+        spec = np.fft.fft2(self.holo)
+        spec = np.fft.fftshift(spec)
+        self.spec = np.log(np.abs(spec))
+
+        # Crop spectral
+        objspec = spec[py:py+width,px:px+width]
+
+        # Shift and IFFT
+        objwave = np.zeros([NN,NN],dtype=np.cfloat)
+        objwave[NN2-width/2:NN2+width/2,NN2-width/2:NN2+width/2] = objspec
         self.holo = objspec
 
         # IFFT
@@ -110,15 +135,16 @@ def holoload(ampfilename,phifilename):
     return holo
 
 def fresnel(holo,lambd,dd,dz):
+    NN  = 2048
+    NN2 = NN/2
     print ("Calculating Fresnel propagation at %s m") % (dz)
     # Generate wave, optimized
-    imgtheta = np.fromfunction(lambda i,j:np.square(i-512) + np.square(j-512),
-                               (1024,1024),dtype=np.float32)
+    imgtheta = np.fromfunction(lambda i,j:np.square(i-NN2) + np.square(j-NN2),(NN,NN),dtype=np.float32)
     imgtheta = imgtheta*np.pi*np.square(dd)/(lambd*dz)
 
     # Create the propagation wave buffer
-    imgwave = np.zeros([1024*2,1024*2],np.cfloat)
-    imgwave[512:512+1024,512:512+1024] = np.cos(imgtheta) + 1.j*np.sin(imgtheta)
+    imgwave = np.zeros([NN*2,NN*2],np.cfloat)
+    imgwave[NN2:NN2+NN,NN2:NN2+NN] = np.cos(imgtheta) + 1.j*np.sin(imgtheta)
 #    imgwave = np.cos(imgtheta) + 1.j*np.sin(imgtheta)
 
     # FFT & shift the propagation wave
@@ -127,8 +153,8 @@ def fresnel(holo,lambd,dd,dz):
 
     # Create buffer for object wave
     objwave = holo.amp*np.exp(1j*holo.phi)
-    imgHolo = np.zeros([1024*2,1024*2],np.cfloat)
-    imgHolo[512:512+1024,512:512+1024] = objwave
+    imgHolo = np.zeros([NN*2,NN*2],np.cfloat)
+    imgHolo[NN2:NN2+NN,NN2:NN2+NN] = objwave
 
     # FFT & shift the object wave
     Hspec = np.fft.fft2(imgHolo)
@@ -140,7 +166,7 @@ def fresnel(holo,lambd,dd,dz):
 
     imgRecon = np.fft.ifft2(Rspec)
     imgRecon = np.fft.fftshift(imgRecon)
-    imgRecon = imgRecon[512:512+1024,512:512+1024]
+    imgRecon = imgRecon[NN2:NN2+NN,NN2:NN2+NN]
 
     holoRecon = HoloSingle()
     holoRecon.amp = np.abs(imgRecon)

@@ -7,7 +7,7 @@ import numpy as np
 # imginp : dictionary containing image with different exposures
 # hdrset : exposure setting, key must match img
 def generate_HDR(imginp,hdrset):
-    response = np.loadtxt("response_flovel_red.dat",usecols=(1,))
+    response = np.loadtxt("/home/tk2/lib/response_flovel_red.dat",usecols=(1,))
     imgHDR = np.zeros([1024,1024]) # Final HDR image
     imgsum = np.zeros([1024,1024]) # Weight sum
 
