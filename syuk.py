@@ -33,10 +33,11 @@ def PseudoWhiteBalance(img,imgbgd):
 #  imgref: Reference image. Ex. holo.amp
 #  img   : Shifted image. Ex. brightfield.red
 def CalculateImageShift(imgref,img):
+    imgH,imgW = imgref.shape
     result = match_template(imgref,img,pad_input=True)
     ij = np.unravel_index(np.argmax(result),result.shape)
     sx,sy = ij[::-1]
-    sx,sy = 512-sx,512-sy
+    sx,sy = imgW/2-sx,imgH/2-sy
     return sx,sy
 
 # Circular shift image
@@ -57,7 +58,7 @@ def detectglass(img,stain='HE'):
 
         # Apply threshold
         mu,sig = np.mean(imgB),np.std(imgB) 
-        imgglass = imgB > mu + 1.1*sig
+        imgglass = imgB > mu + 1.0*sig
 
     return imgglass
 
@@ -74,7 +75,7 @@ def NormalizePhase(imgphase,imggnd=None):
         # Create masked array. None glass area is masked (ignored)
         imgglass = np.ma.masked_array(imgphase,mask=np.invert(imggnd))
         mu = imgglass.mean()
-        print mu
+#        print mu
         imgphase = imgphase - mu
     return imgphase
 

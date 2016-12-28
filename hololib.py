@@ -52,9 +52,17 @@ class HoloSingle:
         self.amp = np.abs(objwave)
         self.phi = np.angle(objwave)
 
+    # Map phase to 8bit grayscale
+    def maptogray(self,tmin,tmax):
+        imgphase = (self.phi-tmin)/(tmax-tmin)*255
+        imgphase[imgphase<0] = 0
+        imgphase[imgphase>255] = 255
+        imgphase = imgphase.astype(np.uint8,copy=False)
+        return imgphase
+
     # Extract to 512x512
     def extract2(self,scrop):
-        NN  = 2048
+        NN  = 1024
         NN2 = NN/2
         py,px,width = scrop
 
@@ -134,18 +142,25 @@ def holoload(ampfilename,phifilename):
 
     return holo
 
+
 def fresnel(holo,lambd,dd,dz):
-    NN  = 2048
+    NN  = 1024
+#    NN = 512
     NN2 = NN/2
+#    MM  = 512  # Wave sampling
+    MM = 1024
+
     print ("Calculating Fresnel propagation at %s m") % (dz)
     # Generate wave, optimized
-    imgtheta = np.fromfunction(lambda i,j:np.square(i-NN2) + np.square(j-NN2),(NN,NN),dtype=np.float32)
-    imgtheta = imgtheta*np.pi*np.square(dd)/(lambd*dz)
-
+    #ori imgtheta = np.fromfunction(lambda i,j:np.square(i-NN2) + np.square(j-NN2),(NN,NN),dtype=np.float32)
+    imgrad = np.fromfunction(lambda i,j:np.square(i-MM/2) + np.square(j-MM/2),(MM,MM),dtype=np.float32)
+    imgtheta = imgrad*np.pi*np.square(dd)/(lambd*dz)
+    
     # Create the propagation wave buffer
     imgwave = np.zeros([NN*2,NN*2],np.cfloat)
-    imgwave[NN2:NN2+NN,NN2:NN2+NN] = np.cos(imgtheta) + 1.j*np.sin(imgtheta)
-#    imgwave = np.cos(imgtheta) + 1.j*np.sin(imgtheta)
+    # ori imgwave[NN2:NN2+NN,NN2:NN2+NN] = np.cos(imgtheta) + 1.j*np.sin(imgtheta)
+    imgwave[NN-MM/2:NN+MM/2,NN-MM/2:NN+MM/2] = np.cos(imgtheta) + 1.j*np.sin(imgtheta)
+    #sm.imsave("imgwave.png",np.real(imgwave))
 
     # FFT & shift the propagation wave
     Wspec = np.fft.fft2(imgwave)
@@ -153,8 +168,9 @@ def fresnel(holo,lambd,dd,dz):
 
     # Create buffer for object wave
     objwave = holo.amp*np.exp(1j*holo.phi)
+    NH,_= objwave.shape
     imgHolo = np.zeros([NN*2,NN*2],np.cfloat)
-    imgHolo[NN2:NN2+NN,NN2:NN2+NN] = objwave
+    imgHolo[NN-NH/2:NN+NH/2,NN-NH/2:NN+NH/2] = objwave
 
     # FFT & shift the object wave
     Hspec = np.fft.fft2(imgHolo)
